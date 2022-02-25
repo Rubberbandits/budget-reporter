@@ -19,3 +19,8 @@
 
 # Go workspace file
 go.work
+
+*.lock
+test.py
+creds.json
+config.json
