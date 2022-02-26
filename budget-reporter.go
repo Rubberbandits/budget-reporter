@@ -25,7 +25,7 @@ type BudgetConfig struct {
 	Email string `json:"email"`
 
 	TestMode   bool       `json:"testmode"`
-	IgnoreList IgnoreList `json:"ignore:"`
+	IgnoreList IgnoreList `json:"ignore"`
 }
 
 type IgnoreList struct {
