@@ -7,8 +7,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"time"
+
+	"github.com/99designs/keyring"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -21,7 +24,11 @@ import (
 type BudgetConfig struct {
 	Email string `json:"email"`
 
-	TestMode bool `json:"testmode"`
+	TestMode   bool       `json:"testmode"`
+	IgnoreList IgnoreList `json:"ignore:"`
+}
+
+type IgnoreList struct {
 }
 
 type MintTime time.Time
@@ -35,19 +42,31 @@ func (timestamp *MintTime) UnmarshalJSON(b []byte) error {
 
 // TransactionData
 type TransactionData struct {
-	Date MintTime `json:"date"`
+	Date MintTime `json:"odate"`
 
-	Description         string `json:"description"`
-	OriginalDescription string `json:"original_description"`
+	Note string `json:"note"`
 
-	Amount          float32 `json:"amount"`
-	TransactionType string  `json:"transaction_type"`
+	IsPercent   bool `json:"isPercent"`
+	IsEdited    bool `json:"isEdited"`
+	IsPending   bool `json:"isPending"`
+	IsMatched   bool `json:"isMatched"`
+	IsFirstDate bool `json:"isFirstDate"`
+	IsDuplicate bool `json:"isDuplicate"`
+	IsChild     bool `json:"isChild"`
+	IsSpending  bool `json:"isSpending"`
+	IsTransfer  bool `json:"isTransfer"`
+	IsCheck     bool `json:"isCheck"`
+	IsDebit     bool `json:"isDebit"`
 
-	Category    string `json:"category"`
-	AccountName string `json:"account_name"`
+	Amount float64 `json:"amount"`
 
-	Labels string `json:"labels"`
-	Notes  string `json:"notes"`
+	FinancialInstitution string `json:"fi"`
+	TransactionType      uint   `json:"txnType"`
+	NumberMatchedByRule  int    `json:"numberMatchedByRule"`
+
+	Merchant string `json:"merchant"`
+
+	Category string `json:"category"`
 }
 
 var Config BudgetConfig
@@ -55,11 +74,12 @@ var spService spreadsheet.Service
 var drvService drive.Service
 
 const TEMPLATE_ID string = "1ZEOkPYJtFnNoNa6fruTghp45q7A5UCUL2eeqGB3kLMU"
+const DATE_FORMAT string = "01/02/2006"
 
 // Functionality
 func ProcessTransactions(transactions *[]TransactionData) {
 	newFile := &drive.File{
-		Name: "Template Copy Haha",
+		Name: time.Now().Local().Format(DATE_FORMAT) + " Budget Report",
 	}
 
 	newFile, err := drvService.Files.Copy(TEMPLATE_ID, newFile).Do()
@@ -72,7 +92,56 @@ func ProcessTransactions(transactions *[]TransactionData) {
 		log.Fatal(err)
 	}
 
-	fmt.Println(spread)
+	fmt.Println(spread.Properties.Title)
+
+	txSheet, err := spread.SheetByIndex(1)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	lastMonth := time.Now().AddDate(0, -1, 0)
+	expenseRow := 4
+	incomeRow := 4
+
+	for _, txData := range *transactions {
+		curRow := expenseRow
+
+		if txData.IsTransfer {
+			continue
+		}
+
+		startColumn := 1
+
+		if !txData.IsSpending {
+			curRow = incomeRow
+			startColumn = 6
+		}
+
+		txAmount := txData.Amount
+		if txData.Amount < 0 {
+			curRow = incomeRow
+			startColumn = 6
+			txAmount *= -1
+		}
+
+		txDate := time.Time(txData.Date)
+		if txDate.Before(lastMonth) {
+			continue
+		}
+
+		txSheet.Update(curRow, startColumn, txDate.Format(DATE_FORMAT))
+		txSheet.Update(curRow, startColumn+1, "=TO_DOLLARS("+strconv.FormatFloat(txAmount, 'f', 2, 64)+")")
+		txSheet.Update(curRow, startColumn+2, "=T(\""+txData.Merchant+"\")")
+		txSheet.Update(curRow, startColumn+3, txData.Category)
+
+		if startColumn == 6 {
+			incomeRow++
+		} else {
+			expenseRow++
+		}
+	}
+
+	txSheet.Synchronize()
 }
 
 func LoadConfig() {
@@ -172,22 +241,22 @@ func main() {
 
 	drvService = *srv
 
-	// ring, _ := keyring.Open(keyring.Config{
-	// 	ServiceName: "mintapi",
-	// })
+	ring, _ := keyring.Open(keyring.Config{
+		ServiceName: "mintapi",
+	})
 
-	// password, _ := ring.Get(Config.Email)
+	password, _ := ring.Get(Config.Email)
 
-	// txData, mintErr := exec.Command("mintapi", "-t", Config.Email, string(password.Data)).Output()
-	// if mintErr != nil {
-	// 	log.Fatal(mintErr)
-	// }
-
-	// Load testing data
-	txData, fsErr := os.ReadFile("./test.json")
-	if fsErr != nil {
-		log.Fatal(fsErr)
+	txData, mintErr := exec.Command("mintapi", "--extended-transactions", Config.Email, string(password.Data)).Output()
+	if mintErr != nil {
+		log.Fatal(mintErr)
 	}
+
+	//Load testing data
+	// txData, fsErr := os.ReadFile("./test.json")
+	// if fsErr != nil {
+	// 	log.Fatal(fsErr)
+	// }
 
 	transactions := []TransactionData{}
 	jsonErr := json.Unmarshal(txData, &transactions)
