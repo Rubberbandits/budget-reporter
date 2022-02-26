@@ -247,7 +247,11 @@ func main() {
 
 	password, _ := ring.Get(Config.Email)
 
-	txData, mintErr := exec.Command("PATH=/usr/bin:$PATH", "mintapi", "--extended-transactions", "--headless", Config.Email, string(password.Data)).Output()
+	cmd := exec.Command("mintapi", "--extended-transactions", "--headless", Config.Email, string(password.Data))
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "PATH=/usr/bin:$PATH")
+
+	txData, mintErr := cmd.Output()
 	if mintErr != nil {
 		log.Fatal(mintErr)
 	}
