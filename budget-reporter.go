@@ -247,7 +247,7 @@ func main() {
 
 	password, _ := ring.Get(Config.Email)
 
-	cmd := exec.Command("mintapi", "--extended-transactions", "--headless", Config.Email, string(password.Data))
+	cmd := exec.Command("mintapi", "--extended-transactions", "--headless", "--use-chromedriver-on-path", Config.Email, string(password.Data))
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "PATH=/usr/bin:$PATH")
 
